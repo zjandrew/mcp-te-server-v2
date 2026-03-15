@@ -52,7 +52,7 @@ export function registerMetaTools(server) {
           events
         }
       };
-      const data = await httpPost('/v1/ta/event/model/meta/loadPropQuotasInEvents', { projectId }, body);
+      const data = await httpPost('/v1/ta/event/model/meta/loadPropQuotas', { projectId }, body);
       return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
     }
   );
@@ -93,10 +93,11 @@ export function registerMetaTools(server) {
     {
       projectId: z.number().describe('Project ID'),
       table: z.string().describe('Table name, e.g. v_event_1300'),
-      schema: z.string().optional().default('ta').describe('Schema name, default: ta')
+      schema: z.string().optional().default('ta').describe('Schema name, default: ta'),
+      catalog: z.string().optional().default('hive').describe('Catalog name, default: hive')
     },
-    async ({ projectId, table, schema }) => {
-      const data = await httpGet('/v1/ta/taIde/auth/tableColumns', { projectId, table, schema });
+    async ({ projectId, table, schema, catalog }) => {
+      const data = await httpGet('/v1/ta/taIde/auth/tableColumns', { projectId, table, schema, catalog });
       return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
     }
   );

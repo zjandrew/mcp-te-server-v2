@@ -28,7 +28,10 @@ export function registerOperationTools(server) {
     },
     async ({ projectId, page, pageSize }) => {
       const data = await httpPost('/v1/hermes/operationTask/query/list', { projectId }, {
-        page, pageSize
+        data: {
+          pagerHeader: { pageNum: page, pageSize }
+        },
+        projectId
       });
       return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
     }
@@ -43,9 +46,9 @@ export function registerOperationTools(server) {
     },
     async ({ projectId, taskId }) => {
       const [statusStat, taskStat] = await Promise.all([
-        httpPost('/v1/hermes/operationTask/query/statusStat', { projectId }).catch(() => null),
+        httpPost('/v1/hermes/operationTask/query/statusStat', { projectId }, { data: {}, projectId }).catch(() => null),
         taskId
-          ? httpPost('/v1/hermes/operationTask/stat/query', { projectId }, { taskId }).catch(() => null)
+          ? httpPost('/v1/hermes/operationTask/stat/query', { projectId }, { data: { taskId }, projectId }).catch(() => null)
           : null
       ]);
       const result = { statusStat, taskStat };

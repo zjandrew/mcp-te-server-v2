@@ -73,7 +73,8 @@ function extractTokenViaOsascript() {
     if (!result || result === 'missing value' || result === 'NO_TAB_FOUND') {
       return null;
     }
-    return result;
+    // Strip surrounding quotes if present (localStorage returns JSON string)
+    return result.replace(/^["']|["']$/g, '');
   } catch {
     return null;
   }

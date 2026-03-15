@@ -86,8 +86,9 @@ async function wsQueryOnce(projectId, requestId, qp, eventModel, options, token)
         },
         { channel: 'ta' }
       ];
-      console.error(`[WS] sending query, requestId=${requestId}, eventModel=${eventModel}`);
-      ws.send(JSON.stringify(message));
+      const msgStr = JSON.stringify(message);
+      console.error(`[WS] sending: ${msgStr.slice(0, 500)}`);
+      ws.send(msgStr);
     });
 
     ws.on('message', (rawData) => {
@@ -101,17 +102,20 @@ async function wsQueryOnce(projectId, requestId, qp, eventModel, options, token)
         }
 
         const payload = msg[1];
+
+        // Handle auth errors even with empty requestId
+        if (payload && (payload.status === 'error' || payload.status === 'failed')) {
+          console.error(`[WS] query failed: ${payload.errorMsg || payload.hintMsg || 'unknown'}`);
+          settle(reject, new Error(`Query error: ${payload.errorMsg || payload.hintMsg || payload.return_message || 'unknown'}`));
+          return;
+        }
+
         if (!payload || payload.requestId !== requestId) {
           console.error(`[WS] ignoring mismatched requestId: got=${payload?.requestId}, expected=${requestId}`);
           return;
         }
 
         console.error(`[WS] payload status=${payload.status}, progress=${payload.progress}`);
-
-        if (payload.status === 'error' || payload.status === 'failed') {
-          settle(reject, new Error(`Query error: ${payload.errorMsg || payload.hintMsg || payload.return_message || 'unknown'}`));
-          return;
-        }
 
         if (payload.progress === 100 && payload.result) {
           if (payload.result.return_code && payload.result.return_code !== 0) {
@@ -144,7 +148,7 @@ export async function wsQuery(projectId, requestId, qp, eventModel = 0, options 
   try {
     return await wsQueryOnce(projectId, requestId, qp, eventModel, options, token);
   } catch (err) {
-    if (err.message.includes('401') || err.message.includes('403') || err.message.includes('closed unexpectedly')) {
+    if (err.message.includes('401') || err.message.includes('403') || err.message.includes('未登录') || err.message.includes('closed unexpectedly')) {
       clearToken();
       const newToken = await getToken();
       return wsQueryOnce(projectId, requestId, qp, eventModel, options, newToken);
@@ -156,9 +160,9 @@ export async function wsQuery(projectId, requestId, qp, eventModel = 0, options 
 export async function querySql(projectId, sql) {
   const requestId = genRequestId('WS_SQLIDE');
   const qp = { events: { sql }, eventView: { sqlViewParams: [] } };
-  return wsQuery(projectId, requestId, qp, 100, {
+  return wsQuery(projectId, requestId, qp, 10, {
     searchSource: 'model_search',
-    querySource: 'module'
+    querySource: 'sqlIde'
   });
 }
 
