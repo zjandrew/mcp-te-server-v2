@@ -158,8 +158,8 @@ export function registerAnalysisTools(server) {
       const qp = { events, eventView };
       const data = await queryReportData(projectId, reportId, qp, report.reportModel, {
         dashboardId,
-        searchSource: dashboardId ? 'dashboard_report_search' : 'model_search',
-        querySource: dashboardId ? 'dashboard' : 'module'
+        searchSource: 'model_search',
+        querySource: 'module'
       });
       return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
     }

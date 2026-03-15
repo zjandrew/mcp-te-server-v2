@@ -167,8 +167,7 @@ export async function querySql(projectId, sql) {
 }
 
 export async function queryReportData(projectId, reportId, qp, eventModel, options = {}) {
-  const dashboardId = options.dashboardId || 0;
-  const requestId = genRequestId(`${projectId}_${dashboardId}_${reportId}`);
+  const requestId = genRequestId(`${projectId}_0_${reportId}`);
   return wsQuery(projectId, requestId, qp, eventModel, {
     searchSource: options.searchSource || 'model_search',
     querySource: options.querySource || 'module'
