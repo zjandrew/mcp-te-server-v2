@@ -45,13 +45,12 @@ export function registerAnalysisTools(server) {
       eventView: z.any().describe('Event view configuration (display/query settings)')
     },
     async ({ projectId, reportName, reportModel, events, eventView }) => {
-      const body = {
-        reportName,
-        reportModel,
-        events: typeof events === 'string' ? events : JSON.stringify(events),
-        eventView: typeof eventView === 'string' ? eventView : JSON.stringify(eventView)
-      };
-      const data = await httpPost('/v1/ta/event/reportsave', { projectId }, body);
+      const eventsObj = typeof events === 'string' ? JSON.parse(events) : events;
+      const eventViewObj = typeof eventView === 'string' ? JSON.parse(eventView) : eventView;
+      const qp = JSON.stringify({ events: eventsObj, eventView: eventViewObj });
+      const data = await httpPost('/v1/ta/event/reportsave', {
+        projectId, reportName, reportModel, qp
+      }, null);
       return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
     }
   );
