@@ -1,6 +1,6 @@
 {
   "name": "@zhoujinandrew/mcp-te-server-v2",
-  "version": "1.1.2",
+  "version": "1.2.1",
   "description": "MCP server for ThinkingEngine (TE) analytics platform — event analysis, SQL queries, dashboards, user segments, and operations",
   "type": "module",
   "bin": {
@@ -32,7 +32,6 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.0",
-    "open": "^10.0.0",
     "ws": "^8.18.0",
     "zod": "^3.25.0"
   }
