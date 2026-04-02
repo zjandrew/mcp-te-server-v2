@@ -35,6 +35,12 @@ async function request(method, modulePath, params = {}, body = null, retry = tru
 
   const data = await resp.json();
 
+  // TE API-level auth errors (HTTP 200 but return_code -1001) — retry with fresh token
+  if (data.return_code === -1001 && retry) {
+    clearToken(resolvedHost);
+    return request(method, modulePath, params, body, false, resolvedHost);
+  }
+
   if (data.return_code !== 0 && data.return_code !== undefined) {
     throw new Error(`TE API error: ${data.return_message || 'unknown'} (code: ${data.return_code})`);
   }
