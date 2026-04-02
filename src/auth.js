@@ -108,10 +108,22 @@ async function requestTokenViaOsascript() {
   console.error(`[TE MCP] Please login, then your token will be captured automatically.`);
 
   try {
-    // Force open in the main Chrome app (not remote-debugging instances)
-    execFileSync('open', ['-a', 'Google Chrome', `https://${host}`], { timeout: 5000 });
+    // Use osascript to open URL in the SAME Chrome instance that we'll read token from.
+    // `open -a` may target a different Chrome instance when multiple instances are running
+    // (e.g. one normal + one with --remote-debugging-port for chrome-devtools MCP).
+    const openScript = [
+      'tell application "Google Chrome"',
+      '  activate',
+      '  if (count of windows) > 0 then',
+      `    make new tab at end of tabs of window 1 with properties {URL:"https://${host}"}`,
+      '  else',
+      `    open location "https://${host}"`,
+      '  end if',
+      'end tell',
+    ];
+    execFileSync('osascript', openScript.flatMap(line => ['-e', line]), { timeout: 5000 });
   } catch {
-    console.error(`[TE MCP] Could not open browser. Please open https://${host} in Chrome manually.`);
+    console.error(`[TE MCP] Could not open browser via osascript. Please open https://${host} in Chrome manually.`);
   }
 
   const deadline = Date.now() + OSASCRIPT_POLL_TIMEOUT_MS;
