@@ -1,6 +1,6 @@
 {
   "name": "@zhoujinandrew/mcp-te-server-v2",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "MCP server for ThinkingEngine (TE) analytics platform — event analysis, SQL queries, dashboards, user segments, and operations",
   "type": "module",
   "bin": {
