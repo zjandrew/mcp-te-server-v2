@@ -3,7 +3,7 @@ import path from 'path';
 import { execFileSync } from 'node:child_process';
 
 const TOKEN_DIR = path.join(process.env.HOME || '', '.te-mcp');
-const TOKEN_FILE = path.join(TOKEN_DIR, 'token.json');
+const TOKENS_FILE = path.join(TOKEN_DIR, 'tokens.json');
 const TOKEN_TTL_MS = 20 * 60 * 60 * 1000; // 20 hours
 const OSASCRIPT_POLL_INTERVAL_MS = 2000;
 const OSASCRIPT_POLL_TIMEOUT_MS = 60000;
@@ -12,48 +12,73 @@ function ensureDir() {
   if (!fs.existsSync(TOKEN_DIR)) fs.mkdirSync(TOKEN_DIR, { recursive: true });
 }
 
-export function getHost() {
+export function getDefaultHost() {
   return process.env.TE_HOST || 'ta.thinkingdata.cn';
 }
 
-export function loadToken() {
+/** Resolve host: use explicit value, fall back to env/default */
+export function resolveHost(host) {
+  return host || getDefaultHost();
+}
+
+function loadAllTokens() {
   try {
-    if (fs.existsSync(TOKEN_FILE)) {
-      const data = JSON.parse(fs.readFileSync(TOKEN_FILE, 'utf-8'));
-      if (!data.token) return null;
-      // TTL check: discard tokens older than TOKEN_TTL_MS
-      if (data.updatedAt) {
-        const age = Date.now() - new Date(data.updatedAt).getTime();
-        if (age > TOKEN_TTL_MS) {
-          console.error(`[TE MCP] Cached token expired (${Math.round(age / 3600000)}h old), re-authenticating...`);
-          clearToken();
-          return null;
-        }
+    // Migrate legacy single-token file
+    const legacyFile = path.join(TOKEN_DIR, 'token.json');
+    if (fs.existsSync(legacyFile)) {
+      const legacy = JSON.parse(fs.readFileSync(legacyFile, 'utf-8'));
+      if (legacy.token && legacy.host) {
+        const tokens = { [legacy.host]: { token: legacy.token, updatedAt: legacy.updatedAt } };
+        ensureDir();
+        fs.writeFileSync(TOKENS_FILE, JSON.stringify(tokens, null, 2));
+        fs.unlinkSync(legacyFile);
+        return tokens;
       }
-      // Host consistency check
-      const expectedHost = getHost();
-      if (data.host && data.host !== expectedHost) {
-        console.error(`[TE MCP] Cached token host (${data.host}) != TE_HOST (${expectedHost}), re-authenticating...`);
-        clearToken();
-        return null;
-      }
-      return data;
+      fs.unlinkSync(legacyFile);
+    }
+
+    if (fs.existsSync(TOKENS_FILE)) {
+      return JSON.parse(fs.readFileSync(TOKENS_FILE, 'utf-8'));
     }
   } catch {}
-  return null;
+  return {};
+}
+
+function saveAllTokens(tokens) {
+  ensureDir();
+  fs.writeFileSync(TOKENS_FILE, JSON.stringify(tokens, null, 2));
+}
+
+export function loadToken(host) {
+  host = resolveHost(host);
+  const tokens = loadAllTokens();
+  const entry = tokens[host];
+  if (!entry || !entry.token) return null;
+
+  // TTL check
+  if (entry.updatedAt) {
+    const age = Date.now() - new Date(entry.updatedAt).getTime();
+    if (age > TOKEN_TTL_MS) {
+      console.error(`[TE MCP] Cached token for ${host} expired (${Math.round(age / 3600000)}h old), re-authenticating...`);
+      clearToken(host);
+      return null;
+    }
+  }
+  return { host, token: entry.token, updatedAt: entry.updatedAt };
 }
 
 export function saveToken(token, host) {
-  ensureDir();
-  fs.writeFileSync(TOKEN_FILE, JSON.stringify({
-    host: host || getHost(),
-    token,
-    updatedAt: new Date().toISOString()
-  }, null, 2));
+  host = resolveHost(host);
+  const tokens = loadAllTokens();
+  tokens[host] = { token, updatedAt: new Date().toISOString() };
+  saveAllTokens(tokens);
 }
 
-export function clearToken() {
-  try { fs.unlinkSync(TOKEN_FILE); } catch {}
+export function clearToken(host) {
+  host = resolveHost(host);
+  const tokens = loadAllTokens();
+  delete tokens[host];
+  saveAllTokens(tokens);
 }
 
 /**
@@ -61,10 +86,10 @@ export function clearToken() {
  * Requires: Chrome > View > Developer > Allow JavaScript from Apple Events
  * @returns {{ token: string|null, error: 'not_mac'|'no_js_permission'|'no_tab'|'no_token'|null }}
  */
-function extractTokenViaOsascript() {
+function extractTokenViaOsascript(host) {
   if (process.platform !== 'darwin') return { token: null, error: 'not_mac' };
 
-  const host = getHost();
+  host = resolveHost(host);
   const lines = [
     'tell application "Google Chrome"',
     '  repeat with w in windows',
@@ -101,16 +126,13 @@ function extractTokenViaOsascript() {
  * Open TE in the user's browser, then poll osascript until token appears.
  * Returns token string or null if polling times out.
  */
-async function requestTokenViaOsascript() {
-  const host = getHost();
+async function requestTokenViaOsascript(host) {
+  host = resolveHost(host);
 
   console.error(`[TE MCP] No TE tab found in Chrome. Opening https://${host} ...`);
   console.error(`[TE MCP] Please login, then your token will be captured automatically.`);
 
   try {
-    // Use osascript to open URL in the SAME Chrome instance that we'll read token from.
-    // `open -a` may target a different Chrome instance when multiple instances are running
-    // (e.g. one normal + one with --remote-debugging-port for chrome-devtools MCP).
     const openScript = [
       'tell application "Google Chrome"',
       '  activate',
@@ -129,13 +151,12 @@ async function requestTokenViaOsascript() {
   const deadline = Date.now() + OSASCRIPT_POLL_TIMEOUT_MS;
   while (Date.now() < deadline) {
     await new Promise(r => setTimeout(r, OSASCRIPT_POLL_INTERVAL_MS));
-    const { token, error } = extractTokenViaOsascript();
+    const { token, error } = extractTokenViaOsascript(host);
     if (token) {
-      console.error(`[TE MCP] Token captured automatically from Chrome.`);
+      console.error(`[TE MCP] Token captured automatically from Chrome for ${host}.`);
       return token;
     }
     if (error === 'no_js_permission') {
-      // Stop polling — permission issue won't resolve itself
       return null;
     }
   }
@@ -144,13 +165,15 @@ async function requestTokenViaOsascript() {
   return null;
 }
 
-export async function getToken() {
-  // 1. Check cache (with TTL + host validation)
-  const cached = loadToken();
+export async function getToken(host) {
+  host = resolveHost(host);
+
+  // 1. Check cache (with TTL validation)
+  const cached = loadToken(host);
   if (cached && cached.token) return cached.token;
 
   // 2. Try osascript extraction from existing Chrome tab
-  const { token: osascriptToken, error } = extractTokenViaOsascript();
+  const { token: osascriptToken, error } = extractTokenViaOsascript(host);
 
   if (error === 'no_js_permission') {
     throw new Error(
@@ -167,22 +190,21 @@ export async function getToken() {
   }
 
   if (osascriptToken) {
-    console.error(`[TE MCP] Token captured automatically from Chrome.`);
-    saveToken(osascriptToken);
+    console.error(`[TE MCP] Token captured automatically from Chrome for ${host}.`);
+    saveToken(osascriptToken, host);
     return osascriptToken;
   }
 
   // 3. No TE tab open — open browser + poll osascript
-  const polledToken = await requestTokenViaOsascript();
+  const polledToken = await requestTokenViaOsascript(host);
   if (polledToken) {
-    saveToken(polledToken);
+    saveToken(polledToken, host);
     return polledToken;
   }
 
   // All attempts failed
-  const host = getHost();
   throw new Error(
-    `[TE MCP] 无法获取 token。请确认：\n` +
+    `[TE MCP] 无法获取 ${host} 的 token。请确认：\n` +
     `1. Chrome 已打开并登录 https://${host}\n` +
     `2. Chrome 菜单 View → Developer → Allow JavaScript from Apple Events 已开启\n` +
     `3. TE 页面 localStorage 中存在 ACCESS_TOKEN`

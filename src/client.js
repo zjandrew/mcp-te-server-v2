@@ -1,4 +1,4 @@
-import { getToken, clearToken, getHost } from './auth.js';
+import { getToken, clearToken, resolveHost } from './auth.js';
 import WebSocket from 'ws';
 import { randomBytes } from 'crypto';
 
@@ -7,11 +7,11 @@ function genRequestId(prefix) {
   return `${prefix}@@${rand}`;
 }
 
-async function request(method, modulePath, params = {}, body = null, retry = true) {
-  const token = await getToken();
-  const host = getHost();
+async function request(method, modulePath, params = {}, body = null, retry = true, host = undefined) {
+  const resolvedHost = resolveHost(host);
+  const token = await getToken(resolvedHost);
 
-  const url = new URL(`https://${host}${modulePath}`);
+  const url = new URL(`https://${resolvedHost}${modulePath}`);
   for (const [k, v] of Object.entries(params)) {
     if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
   }
@@ -29,8 +29,8 @@ async function request(method, modulePath, params = {}, body = null, retry = tru
   const resp = await fetch(url.toString(), options);
 
   if ((resp.status === 401 || resp.status === 403) && retry) {
-    clearToken();
-    return request(method, modulePath, params, body, false);
+    clearToken(resolvedHost);
+    return request(method, modulePath, params, body, false, resolvedHost);
   }
 
   const data = await resp.json();
@@ -42,17 +42,17 @@ async function request(method, modulePath, params = {}, body = null, retry = tru
   return data.data !== undefined ? data.data : data;
 }
 
-export async function httpGet(modulePath, params = {}) {
-  return request('GET', modulePath, params);
+export async function httpGet(modulePath, params = {}, host = undefined) {
+  return request('GET', modulePath, params, null, true, host);
 }
 
-export async function httpPost(modulePath, params = {}, body = {}) {
-  return request('POST', modulePath, params, body);
+export async function httpPost(modulePath, params = {}, body, host = undefined) {
+  return request('POST', modulePath, params, body ?? {}, true, host);
 }
 
-async function wsQueryOnce(projectId, requestId, qp, eventModel, options, token) {
-  const host = getHost();
-  const wsUrl = `wss://${host}/v1/ta-websocket/query/${token}`;
+async function wsQueryOnce(projectId, requestId, qp, eventModel, options, token, host) {
+  const resolvedHost = resolveHost(host);
+  const wsUrl = `wss://${resolvedHost}/v1/ta-websocket/query/${token}`;
   const timeout = options.timeout || 30000;
 
   return new Promise((resolve, reject) => {
@@ -143,33 +143,34 @@ async function wsQueryOnce(projectId, requestId, qp, eventModel, options, token)
   });
 }
 
-export async function wsQuery(projectId, requestId, qp, eventModel = 0, options = {}) {
-  const token = await getToken();
+export async function wsQuery(projectId, requestId, qp, eventModel = 0, options = {}, host = undefined) {
+  const resolvedHost = resolveHost(host);
+  const token = await getToken(resolvedHost);
   try {
-    return await wsQueryOnce(projectId, requestId, qp, eventModel, options, token);
+    return await wsQueryOnce(projectId, requestId, qp, eventModel, options, token, resolvedHost);
   } catch (err) {
     if (err.message.includes('401') || err.message.includes('403') || err.message.includes('未登录') || err.message.includes('closed unexpectedly')) {
-      clearToken();
-      const newToken = await getToken();
-      return wsQueryOnce(projectId, requestId, qp, eventModel, options, newToken);
+      clearToken(resolvedHost);
+      const newToken = await getToken(resolvedHost);
+      return wsQueryOnce(projectId, requestId, qp, eventModel, options, newToken, resolvedHost);
     }
     throw err;
   }
 }
 
-export async function querySql(projectId, sql) {
+export async function querySql(projectId, sql, host = undefined) {
   const requestId = genRequestId('WS_SQLIDE');
   const qp = { events: { sql }, eventView: { sqlViewParams: [] } };
   return wsQuery(projectId, requestId, qp, 10, {
     searchSource: 'model_search',
     querySource: 'sqlIde'
-  });
+  }, host);
 }
 
-export async function queryReportData(projectId, reportId, qp, eventModel, options = {}) {
+export async function queryReportData(projectId, reportId, qp, eventModel, options = {}, host = undefined) {
   const requestId = genRequestId(`${projectId}_0_${reportId}`);
   return wsQuery(projectId, requestId, qp, eventModel, {
     searchSource: options.searchSource || 'model_search',
     querySource: options.querySource || 'module'
-  });
+  }, host);
 }
